@@ -85,7 +85,7 @@ As a feasibility study, the system was extended to interface with a custom Guita
 Install required packages:
 
 ```
-pip install UnicornPy numpy scipy matplotlib selenium webdriver-manager
+pip install -e requirements.txt
 ```
 
 ### Licensing Requirement
