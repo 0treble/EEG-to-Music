@@ -4,15 +4,8 @@ import matplotlib.pyplot as plt
 from scipy.signal import firwin, filtfilt
 from scipy.stats import entropy
 import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.edge.service import Service as EdgeService
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from webdriver-manager.microsoft import EdgeChromiumDriverManager
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
+MUSIC_API = " -- add your MusicGen (or equivalent) API --"      # I.e., "https://ee1111cffff8c000c.gradio.live/"
 
 def compute_music_features(data_buffer, fs):
     def bandpower(data, fs, band):
@@ -150,62 +143,75 @@ def compute_music_features(data_buffer, fs):
     return prompt
 
 
-def generate_music_from_prompt(mood, tempo, genre, instruments):
+def generate_music_from_prompt(mood:str, tempo:str, genre:str, instruments:str) -> None:
+    """
+    Initializes connection to MusicGen via gradio_client, generates music through the arguments
+    and plays the resulting audio file. Make sure you set the MUSIC_API beforehand!
+    This generates a piece of art, which is usually defined loosely by feelings - any given keyword
+    can be interpreted differently by another use and is therefore highly subjective and free.
+    :param mood: str: emotional quality or feeling evoked.
+    :param tempo: str: the speed at which the piece is played in BPM.
+    :param genre: str: describes the style or category of the piece.
+    :param instruments: devices to be used in the piece.
+    """
+    from gradio_client import Client
+    import sounddevice as sd
+    import subprocess
+    import os
+
+    def load_audio_ffmpeg(path, sr=44100):
+        # Use ffmpeg to decode and resample to 32-bit float PCM
+        cmd = [
+            "ffmpeg",
+            "-i", path,
+            "-f", "f32le",
+            "-acodec", "pcm_f32le",
+            "-ar", str(sr),
+            "-ac", "2",  # stereo
+            "-"
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        raw_audio = proc.stdout.read()
+
+        # Convert bytes to NumPy float32 array
+        audio = np.frombuffer(raw_audio, dtype=np.float32)
+        audio = audio.reshape((-1, 2))
+        return audio, sr
+
     try:
-        options = EdgeOptions()
-        options.use_chromium = True
-
-        driver = webdriver.Edge(
-            service=EdgeService(EdgeChromiumDriverManager().install()),
-            options=options
-        )
-        wait = WebDriverWait(driver, 30)
-        actions = ActionChains(driver)
-
         # Create the music prompt
         prompt = f"Generate a {mood} {genre} loop with {instruments}, {tempo} tempo"
-        print("Music generation prompt:", prompt)
+        print("Music generation prompt:\n", prompt)
 
-        driver.get(" -- add your MusicGen (or equivalent) API --")
+        client = Client(MUSIC_API, verbose=True)
+        result = client.predict(
+            "melody",  # str  in 'Model' Radio component
+            prompt,  # str  in 'Input Text' Textbox component
+            "",  # str (filepath on your computer (or URL) of file) in 'Melody Condition (optional)' Audio component
+            5,  # int | float (numeric value between 1 and 300) in 'Duration' Slider component
+            250,  # int | float  in 'Top-k' Number component
+            0,  # int | float  in 'Top-p' Number component
+            1,  # int | float  in 'Temperature' Number component
+            5,  # int | float  in 'Classifier Free Guidance' Number component
+            -1,  # int | float  in 'Seed' Number component
+            12,  # int | float (numeric value between 1 and 29) in 'Overlap' Slider component
+            fn_index=3)
 
-        # Fill textarea via JS
-        textarea = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, "textarea[data-testid='textbox']")
-        ))
-        driver.execute_script(
-            "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input',{ bubbles:true }));",
-            textarea, prompt
-        )
-        time.sleep(0.5)
+        audio, sr = load_audio_ffmpeg(result[0])
+        print("Playing generated music...", flush=True)
+        sd.play(audio, sr, loop=True)
 
-        # Click Generate
-        gen_btn = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, "button#component-9")
-        ))
-        actions.move_to_element(gen_btn).click().perform()
-
-        # Wait for generation
-        time.sleep(8)
-        print("Submitted prompt:", textarea.get_attribute("value"))
-
-        # Hover & click Play
-        play_btn = wait.until(EC.presence_of_element_located(
-            (By.CSS_SELECTOR, 'span[aria-label="play-pause-replay-button"]')
-        ))
-        actions.move_to_element(play_btn).click().perform()
-        print("Playing generated music...")
-
-        # Keep the music playing for a while
-        time.sleep(15)
+        os.system('pause')
 
     except Exception as e:
         print(f"Error in music generation: {str(e)}")
+
     finally:
+        # Turn off any leftover playback
         try:
-            driver.quit()
+            sd.stop()
         except:
             pass
-
 
 def main():
     FrameLength = 1
