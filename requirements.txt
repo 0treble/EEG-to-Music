@@ -1,0 +1,6 @@
+UnicornPy
+numpy
+scipy
+matplotlib
+gradio_client
+sounddevice
